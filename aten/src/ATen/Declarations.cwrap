@@ -180,6 +180,8 @@
   cpu_half: True
   variants:
     - function
+  backends:
+    - CUDA
   return: argument 0,1
   arguments:
     - arg: THTensor* values
