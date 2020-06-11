@@ -1502,6 +1502,66 @@ class TestAutograd(TestCase):
         gradcheck(func, [x])
         gradgradcheck(func, [x])
 
+    def test_complex_views(self):
+        x = torch.randn(10, dtype=torch.cdouble, requires_grad=True)
+        x.real.sum().backward()
+        self.assertEqual(x.grad, torch.ones_like(x))
+
+        y = torch.randn(10, dtype=torch.cdouble, requires_grad=True)
+        y.imag.sum().backward()
+        self.assertEqual(y.grad, -1j * torch.ones_like(y))
+
+        def func(z):
+            z_ = torch.view_as_complex(z)
+            z_select = torch.select(z_, z_.dim() - 1, 0)
+            z_select_real = torch.view_as_real(z_select)
+            return z_select_real.sum()
+
+        z = torch.randn(10, 2, 2, dtype=torch.double, requires_grad=True)
+        gradcheck(func, [z])
+
+        z1 = z.clone().detach().requires_grad_(True)
+        torch.select(z1, z1.dim() - 2, 0).sum().backward()
+
+        func(z).backward()
+        self.assertEqual(z.grad, z1.grad)
+
+    def test_view_func_for_complex_views(self):
+        x = torch.randn(2, 2, 2, dtype=torch.double, requires_grad=True)
+        y = x.clone().detach().requires_grad_(True)
+
+        x0 = x.clone()
+        x1 = x0.reshape(4, 2)
+        x1.mul_(2)
+        x1.sum().backward()
+
+        y0 = y.clone()
+        y1 = torch.view_as_complex(y0)
+        # parent has view_func but child does not
+        y2 = y1.reshape(4)
+        # child has view_func but parent does not
+        y3 = torch.view_as_real(y2)
+        y3.mul_(2)
+        y3.sum().backward()
+
+        self.assertEqual(x.grad, y.grad)
+
+        a = torch.randn(2, 2, 2, dtype=torch.double, requires_grad=True)
+        b = x.clone().detach().requires_grad_(True)
+
+        a0 = a.clone()
+        a1 = torch.view_as_complex(a0)
+        # both parent and child have view_func
+        a2 = torch.view_as_real(a1)
+        a2.mul_(2)
+        a2.sum().backward()
+
+        b0 = b.clone()
+        b0.mul_(2)
+        b0.sum().backward()
+
+        self.assertEqual(a.grad, b.grad)
+
     def test_stack(self):
         x = torch.randn(10, 10, requires_grad=True)
         y = torch.randn(10, 10, requires_grad=True)
