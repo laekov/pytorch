@@ -56,7 +56,8 @@ class DistributedSampler(Sampler):
 
         # subsample
         indices = indices[self.rank:self.total_size:self.num_replicas]
-        assert len(indices) == self.num_samples
+        if len(indices) < self.num_samples:
+            indices.append(self.rank - 1)
 
         return iter(indices)
 
