@@ -83,6 +83,7 @@ class Module(object):
         self._parameters = OrderedDict()
         self._buffers = OrderedDict()
         self._backward_hooks = OrderedDict()
+        self._backward_pre_hooks = OrderedDict()
         self._forward_hooks = OrderedDict()
         self._forward_pre_hooks = OrderedDict()
         self._state_dict_hooks = OrderedDict()
@@ -431,6 +432,12 @@ class Module(object):
 
         return self._apply(convert)
 
+    def reset_hooks(self):
+        self._backward_hooks = OrderedDict()
+        self._backward_pre_hooks = OrderedDict()
+        self._forward_hooks = OrderedDict()
+        self._backward_hooks = OrderedDict()
+
     def register_backward_hook(self, hook):
         r"""Registers a backward hook on the module.
 
@@ -462,6 +469,15 @@ class Module(object):
         """
         handle = hooks.RemovableHandle(self._backward_hooks)
         self._backward_hooks[handle.id] = hook
+        return handle
+
+    def register_backward_pre_hook(self, hook):
+        r"""Registers a backward pre-hook on the module.
+
+        The hook will be called every time before :func:`backward` is invoked.
+        """
+        handle = hooks.RemovableHandle(self._backward_pre_hooks)
+        self._backward_pre_hooks[handle.id] = hook
         return handle
 
     def register_forward_pre_hook(self, hook):
@@ -549,6 +565,24 @@ class Module(object):
             hook_result = hook(self, input, result)
             if hook_result is not None:
                 result = hook_result
+        if len(self._backward_pre_hooks) > 0:
+            var = result
+            while not isinstance(var, torch.Tensor):
+                if isinstance(var, dict):
+                    var = next((v for v in var.values() if isinstance(v, torch.Tensor)))
+                else:
+                    var = var[0]
+            grad_fn = var.grad_fn
+            if grad_fn is not None:
+                for hook in self._backward_pre_hooks.values():
+                    wrapper = functools.partial(hook, self)
+                    functools.update_wrapper(wrapper, hook)
+                    try:
+                        grad_fn.register_pre_hook(wrapper)
+                    except Exception as e:
+                        print("Error in registering pre-hook")
+                        print("Error: %s" % e)
+                        continue
         if len(self._backward_hooks) > 0:
             var = result
             while not isinstance(var, torch.Tensor):
